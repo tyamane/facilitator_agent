@@ -1,15 +1,12 @@
-from google.adk.agents import LlmAgent
-from .prompts import SYSTEM_INSTRUCTION
-from .tools import FACILITATOR_TOOLS
+from google.adk.agents import Agent
+from facilitator.custom_agent import FacilitatorAgent
 
-def create_facilitator_agent(model_name: str = "gemini-2.0-flash-exp") -> LlmAgent:
+def create_facilitator_agent(model_name: str = "gemini-2.0-flash-exp") -> Agent:
     """
-    Creates and returns the Facilitator LlmAgent.
+    Creates and returns the Custom Facilitator Agent.
     """
-    return LlmAgent(
-        name="facilitator",
-        model=model_name,
-        instruction=SYSTEM_INSTRUCTION,
-        tools=FACILITATOR_TOOLS,
-        description="A facilitator agent that orchestrates the conversation and delegates tasks to specialists."
-    )
+    return FacilitatorAgent(model_name=model_name)
+
+# Expose the agent for ADK CLI
+root_agent = create_facilitator_agent()
+

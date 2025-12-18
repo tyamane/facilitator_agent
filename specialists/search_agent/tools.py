@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional
-from ...models.schema import AgentResponse, RESULT_TYPE_ANSWER
+from models.schema import AgentResponse, RESULT_TYPE_ANSWER
 
 def call_search_agent(query: str, agent_state: Optional[Dict[str, Any]] = None, context: Dict[str, Any] = {}) -> AgentResponse:
     """

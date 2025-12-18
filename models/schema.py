@@ -15,7 +15,7 @@ class AgentResponse(BaseModel):
     """
     agent_name: str = Field(..., description="Name of the agent returning this response")
     result_type: ResultType = Field(..., description="Type of the result: ANSWER, HANDOFF, CONTINUE, or ERROR")
-    content: str | Dict[str, Any] = Field(..., description="Content to display to the user or pass to the next agent")
+    content: Any = Field(..., description="Content to display to the user or pass to the next agent")
     confidence: float = Field(..., description="Confidence score of the result (0.0 to 1.0)")
     agent_state: Optional[Dict[str, Any]] = Field(None, description="Updated internal state of the agent to be persisted")
     next_agent_hint: Optional[str] = Field(None, description="Hint for the next agent to call (only for HANDOFF)")

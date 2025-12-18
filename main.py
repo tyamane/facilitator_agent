@@ -1,7 +1,7 @@
 import logging
 import uvicorn
 from google.adk.apps import App
-from facilitator_agent.facilitator.agent import create_facilitator_agent
+from facilitator.agent import create_facilitator_agent
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)

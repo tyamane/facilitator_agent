@@ -15,6 +15,12 @@
     - [x] ファシリテーター ツール実装 (`tools.py`) <!-- id: 3.4 -->
     - [x] ファシリテーター エージェント定義 (`agent.py`) <!-- id: 3.5 -->
     - [x] ルーティングロジックの実装 (`runtime.py` / Sticky Session) <!-- id: 4 -->
+    - [x] ファシリテーター詳細設計 (Router/FacilitatorAgent)
+    - [x] ADK標準 Runner/App との統合設計
+    - [x] 専門家エージェント機能設計 (Mock Tools)
+    - [x] カスタムエージェントクラス (`FacilitatorAgent`) の実装 <!-- id: 4.1 -->
+    - [x] エージェント定義の差し替え (`agent.py`) <!-- id: 4.2 -->
+    - [x] シミュレーションスクリプトの更新と検証 <!-- id: 4.3 -->
     - [ ] 応答/Block Kit 生成の実装 (Mocked in Runtime) <!-- id: 5 -->
 - [ ] フェーズ 3: 専門家エージェント実装
     - [x] テスト用 Mock/Echo エージェントの実装 (`ops_agent` Mock) <!-- id: 6 -->

@@ -1,84 +1,40 @@
 # 実装計画 - Slack ファシリテーターエージェント
 
-## ゴール
-Slack のスレッド内での会話状況に応じて、ファシリテーターエージェントがタスクを適切なサブエージェントに委譲し、議論やタスクを遂行するマルチエージェントシステムを構築する。
+## 概要
+Slack上の議論を整理し、適切な専門家エージェントにタスクを振り分ける「ファシリテーターAI」を構築する。
+Google ADK (Agent Development Kit) を基盤とし、将来的な FastAPI ビルドおよび他システム連携を見据えた設計とする。
 
-## ユーザーレビュー事項
-- [ ] エージェント間通信用の JSON スキーマの確認
-- [ ] フォルダ構成の確認
+## ⚠️ ユーザーレビュー必須 items
 
-## 提案する変更内容
+> [!IMPORTANT]
+> **アーキテクチャ変更: カスタムエージェントクラスの採用**
+> 標準の `LlmAgent` + 外部ランタイム (`runtime.py`) の構成から、**カスタムエージェントクラス (`FacilitatorAgent`)** にロジックを集約する方針へ変更します。
+> これにより、`adk web` や将来の FastAPI サーバー化の際も、共通のルーティングロジック (Sticky Session) が適用されます。
 
-### アーキテクチャ設計
-- **パターン**: 中央集権型オーケストレーション (Centralized Orchestration)
-- **プロジェクトルート**: `/home/tyamane/work/facilitator_agent`
-- **技術スタック**: Python, LLM (Vertex AI / Gemini)
+## 変更内容 (Proposed Changes)
 
-### アーキテクチャ決定 (Architecture Decisions)
+### 1. Facilitator Agent (Custom Class)
+#### [NEW] [custom_agent.py](file:///home/tyamane/work/facilitator_agent/facilitator/custom_agent.py)
+- `google.adk.agents.Agent` を継承。
+- `_run_async_impl` を実装し、以下のロジックをカプセル化する:
+  1. `Session` から `ThreadState` を復元。
+  2. `active_agent` が存在する場合、LLMをバイパスしてツールを直接実行 (Sticky Session)。
+  3. 存在しない場合、内部の `LlmAgent` (`self.llm_router`) に委譲。
 
-#### 専門家エージェントの実装: FunctionTool vs SubAgent
-本システムでは、専門家エージェントを **`FunctionTool` (Python関数)** として実装し、ファシリテーターから呼び出す方式を採用します。
+### 2. Main Entrypoint & Configuration
+#### [MODIFY] [agent.py](file:///home/tyamane/work/facilitator_agent/facilitator/agent.py)
+- `LlmAgent` のファクトリ関数を `FacilitatorAgent` (カスタム) を返すように変更。
+- `root_agent` をカスタムエージェントのインスタンスに差し替え。
 
-**理由とメリット:**
-1. **インターフェースの統一と型安全性**: 
-   - `FunctionTool` は入出力が Python の型ヒント (Pydantic) で定義されるため、ファシリテーターは確実に構造化されたデータ (`AgentResponse`) を受け取ることができます。
-   - LLMベースの `SubAgent` そのものを用いると、自然言語でのやり取りになりがちで、厳密なデータ受け渡し（Handoffなど）の制御が難しくなります。
-2. **状態管理の集約 (Stateless Worker Pattern)**:
-   - 要件である「ファシリテーターが状態を管理・永続化する」という設計において、専門家エージェントは「状態を受け取って、結果と新状態を返す」純粋な関数として振る舞うのが最適です。
-   - 独自のライフサイクルを持つ `SubAgent` インスタンスを使うと、状態の二重管理や同期の問題が発生しやすくなります。
-3. **柔軟な実装**:
-   - `FunctionTool` の内部で LLM API を呼ぶことは可能です。つまり「AI機能」を持ちつつ、「外部インターフェースは関数」という構成にできます。これにより、単純な検索ロジックのエージェントと、高度な思考を行うOpsエージェントを、ファシリテーターからは同じように扱うことができます。
-
-### フォルダ構成案 (ADK Best Practices)
-```text
-/facilitator_agent
-  /facilitator
-    /__init__.py
-    /agent.py       # Facilitator LlmAgent definition
-    /prompts.py     # System instructions
-    /tools.py       # Tools to call sub-agents
-  /specialists
-    /__init__.py
-    /search_agent
-      /__init__.py
-      /agent.py     # Search Agent definition
-      /tools.py     # Search tools
-    /ops_agent
-      /__init__.py
-      /agent.py     # Ops Agent definition
-      /tools.py     # Operations tools
-  /models
-    schema.py       # Shared Pydantic models
-  /main.py          # Custom entry point (optional)
-  /simulation.py    # Simulation script
-  /.env             # Environment variables
-```
-
-### コンポーネント詳細
-
-#### 1. データモデル (`models/schema.py`)
-- **ThreadState**: 手話履歴、現在のステータス (OPEN, IN_PROGRESS, RESOLVED)、現在のゴールを保持。
-- **AgentResponse**: サブエージェントからファシリテーターへ返す標準フォーマット。
-  - `agent_name`: str
-  - `content`: str (または JSON オブジェクト)
-  - `confidence`: float
-
-#### 2. ファシリテーターエージェント (`agents/facilitator/core.py`)
-- **分析ループ**:
-  1. 最新メッセージの取得
-  2. `ThreadState` (状態) の更新 (LLM 使用)
-  3. `NextAction` (次アクション) の決定 (ユーザーへの返信、エージェント X への委譲、待機)
-  4. 委譲の場合: サブエージェント呼び出し -> 結果取得 -> 応答生成 -> Slack 投稿
-
-#### 3. 専門家エージェント (Specialist Agents)
-- **インターフェース**: `process(query: str, context: dict) -> AgentResponse`
-- **検索エージェント**: RAG または単純なキーワード検索をシミュレート。
+### 3. Future FastAPI Considerations
+- **SessionManager**: ADK `App` 初期化時に `GcsSessionService` (または Firestore) を注入可能にする。
+- **Webhooks/PubSub**: ADKが提供する FastAPI インスタンスに、カスタムルーター (`APIRouter`) をマウントする設計とする。
 
 ## 検証計画
+### Automated Tests
+- `simulation.py` を更新し、`FacilitatorRuntime` (旧ロジック) ではなく、新しい `FacilitatorAgent` クラスを直接呼び出して動作検証を行う。
 
-### 自動テスト
-- **ユニットテスト**: ファシリテーターのルーティングロジック (例: "AWSアカウントが必要" という発言が Ops Agent にルーティングされるか) をテスト。
-- **シミュレーション**: `simulation.py` を作成し、Slack 風のメッセージ入力をシステムに与え、正しいエージェントが応答するか検証する。
-
-### 手動検証
-- `python simulation.py` を実行し、コンソール出力で会話フローが適切か確認する。
+### Manual Verification
+- `adk web .` を起動し、Web UI 上で:
+  1. 通常の対話 (LLM経由) ができるか。
+  2. Ops Agent への依頼後に、LLMを経ずに会話が継続 (Sticky) するかを確認。

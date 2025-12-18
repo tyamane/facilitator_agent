@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional, Literal, List
 from pydantic import BaseModel, Field
-from ...models.schema import AgentResponse, RESULT_TYPE_ANSWER, RESULT_TYPE_CONTINUE, RESULT_TYPE_HANDOFF
+from models.schema import AgentResponse, RESULT_TYPE_ANSWER, RESULT_TYPE_CONTINUE, RESULT_TYPE_HANDOFF
 
 # State Model specific to Ops Agent
 class OpsAgentState(BaseModel):

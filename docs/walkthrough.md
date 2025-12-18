@@ -1,46 +1,39 @@
-# ウォークスルー - Slack ファシリテーターエージェント
+# ファシリテーターエージェント実装 Walkthrough
 
-## 概要
-このドキュメントでは、Slack ファシリテーターエージェントの実装および検証の進捗を記録します。
+## 目的
+ADK (Agent Development Kit) を用いて、ユーザーごとのコンテキストを維持し、適切な専門家エージェントにルーティングし続ける「Sticky Session」機能を持つファシリテーターエージェントを実装・検証すること。
 
-## 進捗状況
+## 実施内容
 
-### ドキュメント整備
-- [x] 初期設計ドキュメント作成 (`task.md`, `implementation_plan.md`) - 日本語化完了
-- [x] 詳細設計書の作成 (`facilitator_design.md`, `specialist_design.md`)
+### 1. カスタムエージェント実装 (`FacilitatorAgent`)
+- ADK標準の `Agent` クラスを継承した `FacilitatorAgent` を作成。
+- **構成**:
+  - `llm_router`: 初回ルーティングを担当する内部 `LlmAgent`。
+  - `_run_async_impl`: メイン実行ループ。`ThreadState` をチェックし、Sticky Session が有効な場合は LLM をバイパスして直接ツールを実行するロジックを実装。
+  - `_after_tool_callback`: 標準フロー（LLM Router経由）の結果をインターセプトし、状態 (`active_agent`, `agent_state`) を更新・永続化するロジック。
 
-### 実装フェーズ (Phase 2 & 3)
-以下のコンポーネントを実装し、動作構築しました。
+### 2. 状態永続化 (State Persistence) の課題と解決
+- **課題**: ADK の `InMemorySessionService` と `Runner` の仕様上、エージェント内で `session.state` を更新しても、次のターンでロードされるセッションオブジェクトに反映されない（コピーが渡される、または `Event` 経由での更新のみが反映されるため）問題が発生。
+- **解決策**:
+  - **Sticky Flow**: `Event` を yield する際に `EventActions(stateDelta=...)` を含めることで、`Runner` 経由で正規に状態を更新。
+  - **Standard Flow & Manual Backup**: `_run_async_impl` およびコールバック内で、`InvocationContext` から `session_service` にアクセスし、手動でセッションオブジェクトを同期 (`service.sessions[app][user][id] = session`) することで、即時かつ確実な永続化を実現。
 
-1. **Facilitator Runtime (`facilitator/runtime.py`)**
-   - ADKの標準エージェントモデルに加え、Sticky Session (ステートフルルーティング) を実現するカスタムロジックを実装。
-   - `ThreadState` 内の `active_agent` を参照し、継続案件の場合は LLM をスキップして直接専門家エージェントを呼び出します。
+### 3. シミュレーション検証 (`simulation.py`)
+- `InMemorySessionService` を使用したローカルシミュレーションスクリプトを作成。
+- **検証シナリオ**:
+  1. **Turn 1**: ユーザー "Create account..." -> Router -> OpsAgent (Mock) -> "Plan create... (Confirming)"
+  2. **Turn 2**: ユーザー "yes, please" -> Facilitator (Sticky Logic) -> OpsAgent (Direct) -> "HANDOFF: Account created"
+- **結果**:
+  - Turn 1 で `active_agent="OpsAgent"` および `agent_state` が正しく保存されることを確認。
+  - Turn 2 で Sticky Session ロジックが発動し、LLM Router を呼び出さずに OpsAgent が実行されることを確認。
+  - OpsAgent が前回の状態 (`agent_state`) を復元し、パラメータ再入力を求めずに処理を完了 (Handoff) することを確認。
 
-2. **Specialist Agent: Ops Agent (`specialists/ops_agent/tools.py`)**
-   - ステートレスな `FunctionTool` として実装。
-   - `agent_state` を引数と戻り値で受け渡しすることで、以下の業務フローを実現。
-     - Phase 1: COLLECTING (パラメータ収集)
-     - Phase 2: CONFIRMING (承認待ち)
-     - Phase 3: COMPLETED (完了/Handoff)
+## 成果物
+- `facilitator/custom_agent.py`: Sticky Session 実装済みエージェント
+- `facilitator/runtime.py`: (旧プロトタイプ、現在は `custom_agent.py` 推奨)
+- `specialists/ops_agent/tools.py`: ステートフルな業務エージェントロジック
+- `simulation.py`: 検証用スクリプト
 
-### 検証結果 (Simulation)
-
-`simulation.py` を作成し、LLMを介さないロジック単体テストを実施。
-
-**シナリオ:** アカウント作成依頼 -> パラメータ抽出 -> 承認依頼 -> 承認 -> Handoff
-
-**実行結果 (抜粋):**
-```text
-User: Create account for tyamane role admin
-System: Plan created: Create account for tyamane with role admin. Do you approve? (yes/no)
-[Debug] Active Agent: OpsAgent
-[Debug] Agent State: {'phase': 'CONFIRMING', ...}
-
-User: yes, please
-System: HANDOFF: {'plan': 'Create account for tyamane with role admin', 'status': 'APPROVED'}
-[Debug] Active Agent: None
-
-SUCCESS: Flow completed with HANDOFF.
-```
-
-これにより、**ステートフルな専門家エージェントの作成**と、**ファシリテータによる状態の永続化・ルーティング**が正しく動作することを確認しました。
+## 次のステップ
+- FastAPI アプリケーション (`main.py`) 経由での動作確認 (`adk web` 利用)
+- 実際の Slack / PubSub 連携に向けたインターフェース整備
